@@ -1,0 +1,100 @@
+name: Build oh-my-opencode
+
+on:
+  workflow_call:
+
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: "1.3.8"
+
+jobs:
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sjawhar/.github/.github/actions/sami-version@v1
+        id: version
+        with:
+          source: bun
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-latest
+            bun_target: bun-linux-x64
+          - target: linux-arm64
+            os: ubuntu-latest
+            bun_target: bun-linux-arm64
+          - target: darwin-arm64
+            os: macos-latest
+            bun_target: bun-darwin-arm64
+          - target: darwin-x64
+            os: macos-latest
+            bun_target: bun-darwin-x64
+          - target: windows-x64
+            os: windows-latest
+            bun_target: bun-windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+
+      - name: Build main package
+        run: bun run build
+
+      - name: Compile standalone binary
+        shell: bash
+        run: |
+          bun build --compile --minify \
+            --target=${{ matrix.bun_target }} \
+            --outfile=oh-my-opencode \
+            src/cli/index.ts
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          NAME="oh-my-opencode-${TAG}-${{ matrix.target }}"
+          if [[ "${{ matrix.os }}" == windows* ]]; then
+            7z a "${NAME}.zip" oh-my-opencode.exe
+            echo "asset=${NAME}.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar czf "${NAME}.tar.gz" oh-my-opencode
+            echo "asset=${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oh-my-opencode-${{ matrix.target }}
+          path: ${{ steps.package.outputs.asset }}
+
+  release:
+    name: Create release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: sjawhar/.github/.github/actions/sami-release@v1
+        with:
+          tag: ${{ needs.version.outputs.tag }}
+          files: artifacts/**/*
