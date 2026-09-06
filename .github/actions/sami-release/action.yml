@@ -41,6 +41,10 @@ runs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ inputs.tag }}
+        # Tag the commit that was built. Left unset, the release API creates the
+        # tag at the repository's default branch, so every sami tag pointed at
+        # upstream main instead of the sami commit its assets were built from.
+        target_commitish: ${{ github.sha }}
         name: "sami build ${{ inputs.tag }}"
         body: ${{ steps.body.outputs.text }}
         files: ${{ inputs.files }}
